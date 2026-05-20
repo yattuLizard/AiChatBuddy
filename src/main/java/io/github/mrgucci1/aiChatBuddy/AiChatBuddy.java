@@ -154,17 +154,35 @@ public class AiChatBuddy extends JavaPlugin implements Listener {
 
         // Get the "candidates" array
         JSONArray candidatesArray = (JSONArray) jsonObject.get("candidates");
-
         // Assuming there's only one candidate (index 0), extract its content
         JSONObject candidateObject = (JSONObject) candidatesArray.get(0);
         JSONObject contentObject = (JSONObject) candidateObject.get("content");
-
         // Get the "parts" array within the content
         JSONArray partsArray = (JSONArray) contentObject.get("parts");
 
-        // Assuming there's only one part (index 0), extract its text
-        JSONObject partObject = (JSONObject) partsArray.get(0);
-        String responseText = (String) partObject.get("text");
+        // Extract text from all parts, ignoring thought-only content
+        StringBuilder finalText = new StringBuilder();
+
+        for (Object obj : partsArray) {
+            JSONObject partObject = (JSONObject) obj;
+
+            Boolean isThought = (Boolean) partObject.get("thought");
+            if (Boolean.TRUE.equals(isThought)) {
+                continue;
+            }
+
+            Object textObject = partObject.get("text");
+            if (textObject != null) {
+                finalText.append(textObject.toString());
+            }
+        }
+
+        // Convert the generated text to a clean response
+        String responseText = finalText.toString().trim();
+
+        if (responseText.isEmpty()) {
+            return "Could not generate a response.";
+        }
 
         return responseText;
     }
