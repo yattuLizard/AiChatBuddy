@@ -7,6 +7,7 @@ import io.github.mrgucci1.aiChatBuddy.conversation.ConversationManager;
 import io.github.mrgucci1.aiChatBuddy.providers.AIProvider;
 import io.github.mrgucci1.aiChatBuddy.tools.AgentTool;
 import io.github.mrgucci1.aiChatBuddy.util.JsonUtil;
+import io.github.mrgucci1.aiChatBuddy.util.ResponseSanitizer;
 import org.json.simple.JSONObject;
 
 import java.io.IOException;
@@ -40,6 +41,12 @@ public class AgentLoop {
     }
 
     public String ask(UUID playerId, String question, String systemPrompt) {
+        return ask(playerId, question, systemPrompt, tools, broadcast);
+    }
+
+    public String ask(UUID playerId, String question, String systemPrompt,
+                      List<AgentTool> requestTools, Consumer<String> progress) {
+        List<AgentTool> tools = List.copyOf(requestTools);
         List<ChatMessage> fullHistory = new ArrayList<>();
 
         // Prepend system prompt; track where storable messages begin
@@ -68,19 +75,22 @@ public class AgentLoop {
             }
 
             if (r.isText()) {
-                fullHistory.add(ChatMessage.assistant(r.text()));
+                String visible = ResponseSanitizer.clean(r.text());
+                if (visible.isBlank()) visible = "回答の本文を取得できませんでした．もう一度質問してください．";
+                fullHistory.add(ChatMessage.assistant(visible));
                 persist(playerId, fullHistory, storeOffset);
                 logger.info("[AgentLoop] Finished with text reply (" + r.text().length() + " chars)");
-                return r.text();
+                return visible;
             }
 
-            fullHistory.add(ChatMessage.assistantToolCalls(r.toolCalls()));
+            fullHistory.add(ChatMessage.assistantToolCalls(r.toolCalls(), r.nativeContent()));
+            if (r.toolCalls() == null || r.toolCalls().size() > 32) return "ツール呼び出し数が上限を超えました．質問を分けてください．";
             for (ToolCall call : r.toolCalls()) {
                 logger.info("[AgentLoop] Invoking tool: " + call.getName());
-                if (broadcast != null) {
-                    broadcast.accept("§7[Searching: " + call.getName() + "...]");
+                if (progress != null) {
+                    progress.accept("§7[Tool: " + call.getName() + "...]");
                 }
-                fullHistory.add(ChatMessage.tool(call.getId(), call.getName(), runTool(call)));
+                fullHistory.add(ChatMessage.tool(call.getId(), call.getName(), runTool(call, tools)));
             }
         }
 
@@ -91,10 +101,11 @@ public class AgentLoop {
         try {
             ProviderResponse synth = provider.chat(fullHistory, Collections.emptyList());
             if (synth.isText() && synth.text() != null && !synth.text().isBlank()) {
-                fullHistory.add(ChatMessage.assistant(synth.text()));
+                String visible = ResponseSanitizer.clean(synth.text());
+                fullHistory.add(ChatMessage.assistant(visible));
                 persist(playerId, fullHistory, storeOffset);
                 logger.info("[AgentLoop] Best-effort reply (" + synth.text().length() + " chars)");
-                return synth.text();
+                return visible;
             }
         } catch (IOException e) {
             logger.warning("[AgentLoop] Best-effort synthesis failed: " + e.getMessage());
@@ -123,16 +134,15 @@ public class AgentLoop {
         convo.put(playerId, clean);
     }
 
-    private String runTool(ToolCall call) {
+    private String runTool(ToolCall call, List<AgentTool> tools) {
         for (AgentTool tool : tools) {
             if (tool.name().equals(call.getName())) {
                 try {
                     JSONObject args = JsonUtil.parseObject(call.getArgumentsJson());
                     return tool.execute(args);
                 } catch (Exception e) {
-                    logger.log(java.util.logging.Level.WARNING,
-                            "[AgentLoop] Tool " + call.getName() + " failed: " + e.getMessage(), e);
-                    return "error: " + e.getMessage();
+                    logger.warning("[AgentLoop] Tool " + call.getName() + " failed: " + e.getClass().getSimpleName());
+                    return "{\"isError\":true,\"error\":\"Tool execution failed. Do not invent results.\"}";
                 }
             }
         }

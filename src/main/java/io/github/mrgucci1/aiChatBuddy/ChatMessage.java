@@ -1,6 +1,7 @@
 package io.github.mrgucci1.aiChatBuddy;
 
 import java.util.List;
+import org.json.simple.JSONObject;
 
 public class ChatMessage {
     public enum Role { user, assistant, tool, system }
@@ -10,6 +11,7 @@ public class ChatMessage {
     private final List<ToolCall> toolCalls;
     private final String toolCallId;
     private final String toolName;
+    private JSONObject nativeContent;
 
     private ChatMessage(Role role, String content, List<ToolCall> toolCalls, String toolCallId, String toolName) {
         this.role = role;
@@ -30,6 +32,14 @@ public class ChatMessage {
     public static ChatMessage assistantToolCalls(List<ToolCall> toolCalls) {
         return new ChatMessage(Role.assistant, null, toolCalls, null, null);
     }
+
+    public static ChatMessage assistantToolCalls(List<ToolCall> toolCalls, JSONObject nativeContent) {
+        ChatMessage message = assistantToolCalls(toolCalls);
+        message.nativeContent = nativeContent;
+        return message;
+    }
+
+    public JSONObject getNativeContent() { return nativeContent; }
 
     public static ChatMessage tool(String toolCallId, String toolName, String content) {
         return new ChatMessage(Role.tool, content, null, toolCallId, toolName);

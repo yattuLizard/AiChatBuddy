@@ -25,11 +25,14 @@ public class AiChatCommand implements CommandExecutor {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) {
-            sender.sendMessage(Component.text("Usage: /aichat <reload|forget [player]|memory <list|forget <index>|clear>>", NamedTextColor.RED));
+            sender.sendMessage(Component.text("Usage: /aichat <reload|mcp <status|tools|refresh|call>|forget [player]|memory <list|forget <index>|clear>>", NamedTextColor.RED));
             return true;
         }
 
-        switch (args[0].toLowerCase()) {
+        switch (args[0].toLowerCase(java.util.Locale.ROOT)) {
+            case "mcp":
+                plugin.handleMcpCommand(sender, args);
+                return true;
             case "reload":
                 if (!sender.hasPermission("aichatbuddy.reload")) {
                     sender.sendMessage(Component.text("You don't have permission to reload AiChatBuddy.", NamedTextColor.RED));
@@ -77,7 +80,7 @@ public class AiChatCommand implements CommandExecutor {
                 return handleMemory(sender, args);
 
             default:
-                sender.sendMessage(Component.text("Unknown sub-command. Usage: /aichat <reload|forget [player]|memory <list|forget <index>|clear>>", NamedTextColor.RED));
+                sender.sendMessage(Component.text("Unknown sub-command. Usage: /aichat <reload|mcp <status|tools|refresh|call>|forget [player]|memory <list|forget <index>|clear>>", NamedTextColor.RED));
                 return true;
         }
     }

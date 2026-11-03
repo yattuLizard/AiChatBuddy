@@ -1,44 +1,44 @@
-plugins {
-    id 'java'
-}
-
+plugins { id 'java' }
 group = 'io.github.mrgucci1'
-version = '1.5'
-
+version = '1.6.0-mcp'
 repositories {
     mavenCentral()
-    maven {
-        name = "papermc-repo"
-        url = "https://repo.papermc.io/repository/maven-public/"
-    }
-    maven {
-        name = "sonatype"
-        url = "https://oss.sonatype.org/content/groups/public/"
-    }
+    maven { url = 'https://repo.purpurmc.org/snapshots' }
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
 }
-
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:26.2.build.102-stable")
-    compileOnly("com.googlecode.json-simple:json-simple:1.1.1")
+    compileOnly 'io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT'
+    implementation('com.googlecode.json-simple:json-simple:1.1.1') { exclude group: 'junit', module: 'junit' }
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.4'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.4'
 }
-
-def targetJavaVersion = 25
-def apiVersion = '26.2'
-
-java {
-    toolchain.languageVersion = JavaLanguageVersion.of(targetJavaVersion)
-}
-
-tasks.withType(JavaCompile).configureEach {
-    options.encoding = 'UTF-8'
-    options.release.set(targetJavaVersion)
-}
-
+java { toolchain.languageVersion = JavaLanguageVersion.of(21) }
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release.set(21) }
 processResources {
-    def props = [version: version, apiVersion: apiVersion]
+    def props = [version: project.version, apiVersion: '1.21']
     inputs.properties props
     filteringCharset 'UTF-8'
-    filesMatching('plugin.yml') {
-        expand props
+    filesMatching('plugin.yml') { expand props }
+}
+jar {
+    archiveBaseName = 'AiChatBuddy'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from { configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) } }
+    exclude 'META-INF/*.SF', 'META-INF/*.RSA', 'META-INF/*.DSA'
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+}
+test { useJUnitPlatform(); testLogging { events 'passed', 'skipped', 'failed' } }
+tasks.register('exportDevDependencies', Copy) {
+    from configurations.compileClasspath
+    from configurations.testRuntimeClasspath
+    into layout.buildDirectory.dir('dev-dependencies')
+}
+
+// Used by tests/run-sdk-interop.py against real Python SDK v1 and v2 servers.
+tasks.register('writeInteropClasspath') {
+    dependsOn testClasses
+    doLast {
+        layout.buildDirectory.file('interop-classpath.txt').get().asFile.text = sourceSets.test.runtimeClasspath.asPath
     }
 }

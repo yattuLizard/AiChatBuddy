@@ -81,7 +81,7 @@ public class OpenAICompatibleProvider implements AIProvider {
                 + response.body().length() + " bytes)");
 
         if (response.statusCode() != 200) {
-            throw new IOException("API error " + response.statusCode() + ": " + response.body());
+            throw new IOException("AI provider HTTP " + response.statusCode());
         }
 
         return parseResponse(response.body());
@@ -155,7 +155,7 @@ public class OpenAICompatibleProvider implements AIProvider {
             JSONObject obj = (JSONObject) new JSONParser().parse(json);
             JSONArray choices = (JSONArray) obj.get("choices");
             if (choices == null || choices.isEmpty()) {
-                throw new IOException("Empty choices in response: " + json);
+                throw new IOException("AI provider returned no choices");
             }
             JSONObject choice = (JSONObject) choices.get(0);
             JSONObject message = (JSONObject) choice.get("message");
@@ -176,8 +176,8 @@ public class OpenAICompatibleProvider implements AIProvider {
 
             String content = (String) message.get("content");
             return ProviderResponse.text(content != null ? content : "");
-        } catch (ParseException e) {
-            throw new IOException("Failed to parse response: " + e.getMessage(), e);
+        } catch (ParseException | ClassCastException | NullPointerException e) {
+            throw new IOException("Invalid AI provider response structure");
         }
     }
 }

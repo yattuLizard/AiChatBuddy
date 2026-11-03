@@ -4,12 +4,12 @@ main: io.github.mrgucci1.aiChatBuddy.AiChatBuddy
 api-version: '${apiVersion}'
 load: STARTUP
 author: mrgucci1
-description: AI chat assistant powered by Gemini, Ollama, or NVIDIA with agentic tool use
+description: AI chat assistant with Gemini, Ollama, NVIDIA and generic MCP tools
 
 commands:
   aichat:
     description: Manage AiChatBuddy settings, conversation history, and memory
-    usage: /aichat <reload|forget [player]|memory <list|forget <index>|clear>>
+    usage: /aichat <reload|forget [player]|memory|mcp <status|tools|refresh|call>>
 
 permissions:
   aichatbuddy.ask:
@@ -26,4 +26,14 @@ permissions:
     default: op
   aichatbuddy.memory:
     description: Allows /aichat memory <list|forget|clear>
+    default: op
+
+  aichatbuddy.mcp.use:
+    description: Allows using configured read-only MCP tools in AI conversations
+    default: true
+  aichatbuddy.mcp.write:
+    description: Allows explicitly enabled non-read-only MCP tools
+    default: op
+  aichatbuddy.mcp.admin:
+    description: Allows MCP status, tool listing, refresh and read-only diagnostic calls
     default: op
