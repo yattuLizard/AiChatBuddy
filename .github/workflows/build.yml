@@ -16,11 +16,26 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - name: Build and test
-        run: bash gradlew --no-daemon clean build exportDevDependencies
-      - name: Package source
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build and unit tests
+        run: bash gradlew --no-daemon clean build writeInteropClasspath
+      - name: Install official MCP SDK test environments
+        run: |
+          python -m venv /tmp/mcp-v1
+          /tmp/mcp-v1/bin/pip install 'mcp>=1.25,<2' uvicorn
+          python -m venv /tmp/mcp-v2
+          /tmp/mcp-v2/bin/pip install 'mcp>=2,<3' uvicorn
+      - name: Official MCP SDK interoperability
+        run: |
+          set -o pipefail
+          python tests/run-sdk-interop.py /tmp/mcp-v1/bin/python /tmp/mcp-v2/bin/python 2>&1 | tee build/interop-results.txt
+      - name: Package source and checksums
         if: always()
-        run: git archive --format=zip --output=source.zip HEAD
+        run: |
+          git archive --format=zip --output=source.zip HEAD
+          if compgen -G 'build/libs/*.jar' > /dev/null; then sha256sum build/libs/*.jar > build/SHA256SUMS; fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -29,11 +44,7 @@ jobs:
             build/libs/*.jar
             build/test-results/
             build/reports/tests/
+            build/interop-results.txt
+            build/SHA256SUMS
             source.zip
           if-no-files-found: error
-      - uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: dev-dependencies
-          path: build/dev-dependencies/
-          retention-days: 2

@@ -1,0 +1,72 @@
+# Merge these entries into the EXISTING config.yml. Do not replace prompt-template.
+# MCP_TOKEN is the MCP server's token, NOT GATEWAY_TOKEN or the Google API key.
+provider: gemini
+
+providers:
+  gemini:
+    # Retain your existing Google AI Studio API key and model URL.
+    schema-format: json-schema
+
+# Merge with the existing tools block; do not create a second tools: key.
+tools:
+  mcp:
+    enabled: true
+    refresh-seconds: 300
+    max-tools: 48
+    servers:
+      bluemap:
+        enabled: true
+        transport: streamable-http
+        url: "http://bluemap-mcp:8765/mcp"
+        allow-insecure-http: true  # trusted shared Docker network only
+        token: "REPLACE_WITH_MCP_TOKEN"
+        # Alternative: token-env: BLUEMAP_MCP_TOKEN
+        # The environment variable must be present INSIDE the Youer container.
+        protocol-version: auto
+        timeout-seconds: 20
+        max-result-chars: 12000
+        read-only: true
+        trust-read-only-hints: false
+        permission: aichatbuddy.mcp.use
+        allow-tools:
+          - bm_capabilities
+          - bm_trains
+          - bm_railway_network
+          - bm_search_stations
+          - bm_contraptions
+          - bm_vehicles
+          - bm_nearest_entities
+          - bm_model_info
+          - bm_list_markers
+          - bm_get_marker
+          - bm_fairway_graph
+          - bm_depth_manifest
+          - bm_water_depth
+          - bm_depth_profile
+        read-only-tools:
+          - bm_capabilities
+          - bm_trains
+          - bm_railway_network
+          - bm_search_stations
+          - bm_contraptions
+          - bm_vehicles
+          - bm_nearest_entities
+          - bm_model_info
+          - bm_list_markers
+          - bm_get_marker
+          - bm_fairway_graph
+          - bm_depth_manifest
+          - bm_water_depth
+          - bm_depth_profile
+        deny-tools:
+          - bm_upsert_marker
+          - bm_delete_marker
+        guidance: |
+          This MCP server describes this Minecraft server, not the standalone game Sable.
+          Use its live tools for Sable physics vehicles, Create trains, markers and depths.
+          To count Sable vehicles, call bm_vehicles with limit=1 and read total.
+          Registered count: loaded_only=false. Loaded count: loaded_only=true.
+          Loaded does not mean moving. Last known positions can be stale when loaded=false.
+          For a named vehicle location, use bm_vehicles with name_contains and a small limit.
+          The overworld BlueMap map ID is world. Use map_id=world for depth tools.
+          Missing depth data is unknown and is never proof of navigability.

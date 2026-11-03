@@ -5,6 +5,9 @@ import io.github.mrgucci1.aiChatBuddy.ProviderResponse;
 import io.github.mrgucci1.aiChatBuddy.ToolCall;
 import io.github.mrgucci1.aiChatBuddy.tools.AgentTool;
 import io.github.mrgucci1.aiChatBuddy.util.JsonUtil;
+import io.github.mrgucci1.aiChatBuddy.util.ResponseSanitizer;
+import io.github.mrgucci1.aiChatBuddy.mcp.Json;
+import io.github.mrgucci1.aiChatBuddy.mcp.SchemaAdapter;
 import org.json.simple.JSONArray;
 import org.json.simple.JSONObject;
 import org.json.simple.parser.JSONParser;
@@ -35,8 +38,14 @@ public class GeminiProvider implements AIProvider {
     private final double temperature;
     private final double topP;
     private final Logger logger;
+    private final boolean jsonSchema;
 
     public GeminiProvider(String apiKey, String apiUrl, double temperature, double topP, Logger logger) {
+        this(apiKey, apiUrl, temperature, topP, logger, true);
+    }
+
+    public GeminiProvider(String apiKey, String apiUrl, double temperature, double topP, Logger logger, boolean jsonSchema) {
+        this.jsonSchema = jsonSchema;
         this.apiKey = apiKey;
         this.apiUrl = apiUrl;
         this.temperature = temperature;
@@ -46,6 +55,12 @@ public class GeminiProvider implements AIProvider {
 
     @Override
     public ProviderResponse chat(List<ChatMessage> history, List<AgentTool> tools) throws IOException {
+        JSONObject body = buildRequest(history, tools);
+        return request(body, history.size(), tools.size());
+    }
+
+    @SuppressWarnings("unchecked")
+    JSONObject buildRequest(List<ChatMessage> history, List<AgentTool> tools) {
         JSONObject body = new JSONObject();
 
         // Extract system message and build contents from the rest
@@ -53,7 +68,7 @@ public class GeminiProvider implements AIProvider {
         List<ChatMessage> nonSystem = new ArrayList<>();
         for (ChatMessage msg : history) {
             if (msg.getRole() == ChatMessage.Role.system) {
-                systemText = msg.getContent();
+                if (msg.getContent() != null) systemText = systemText == null ? msg.getContent() : systemText + "\n\n" + msg.getContent();
             } else {
                 nonSystem.add(msg);
             }
@@ -80,6 +95,10 @@ public class GeminiProvider implements AIProvider {
         genConfig.put("topP", topP);
         body.put("generationConfig", genConfig);
 
+        return body;
+    }
+
+    private ProviderResponse request(JSONObject body, int historySize, int toolCount) throws IOException {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(apiUrl))
                 .timeout(REQUEST_TIMEOUT)
@@ -88,7 +107,7 @@ public class GeminiProvider implements AIProvider {
                 .POST(HttpRequest.BodyPublishers.ofString(body.toJSONString()))
                 .build();
 
-        logger.info("[AIProvider] POST gemini messages=" + history.size() + " tools=" + tools.size());
+        logger.info("[AIProvider] POST gemini messages=" + historySize + " tools=" + toolCount);
 
         long start = System.currentTimeMillis();
         HttpResponse<String> response;
@@ -103,7 +122,7 @@ public class GeminiProvider implements AIProvider {
                 + response.body().length() + " bytes)");
 
         if (response.statusCode() != 200) {
-            throw new IOException("Gemini API error " + response.statusCode() + ": " + response.body());
+            throw new IOException("Gemini API HTTP " + response.statusCode() + safeApiStatus(response.body()));
         }
 
         return parseResponse(response.body());
@@ -133,6 +152,12 @@ public class GeminiProvider implements AIProvider {
                 i++;
             } else if (msg.getRole() == ChatMessage.Role.assistant) {
                 content.put("role", "model");
+                if (msg.hasToolCalls() && msg.getNativeContent() != null) {
+                    // Preserve every part verbatim, including opaque thought signatures.
+                    contents.add(Json.copy(msg.getNativeContent()));
+                    i++;
+                    continue;
+                }
                 if (msg.hasToolCalls()) {
                     for (ToolCall call : msg.getToolCalls()) {
                         parts.add(buildFunctionCallPart(call));
@@ -167,7 +192,10 @@ public class GeminiProvider implements AIProvider {
         JSONObject fr = new JSONObject();
         fr.put("name", msg.getToolName());
         JSONObject frResponse = new JSONObject();
-        frResponse.put("output", msg.getContent());
+        try { frResponse = Json.parse(msg.getContent()); }
+        catch (IOException | RuntimeException ignored) { frResponse.put("output", msg.getContent()); }
+        if (msg.getToolCallId() != null && !msg.getToolCallId().startsWith("gemini-local-"))
+            fr.put("id", msg.getToolCallId());
         fr.put("response", frResponse);
         part.put("functionResponse", fr);
         return part;
@@ -180,7 +208,8 @@ public class GeminiProvider implements AIProvider {
             JSONObject decl = new JSONObject();
             decl.put("name", tool.name());
             decl.put("description", tool.description());
-            decl.put("parameters", tool.parametersSchema());
+            decl.put(jsonSchema ? "parametersJsonSchema" : "parameters",
+                    jsonSchema ? tool.parametersSchema() : SchemaAdapter.toOpenApi(tool.parametersSchema()));
             funcDecls.add(decl);
         }
         JSONObject toolObj = new JSONObject();
@@ -190,12 +219,12 @@ public class GeminiProvider implements AIProvider {
         return toolsArray;
     }
 
-    private ProviderResponse parseResponse(String json) throws IOException {
+    ProviderResponse parseResponse(String json) throws IOException {
         try {
             JSONObject obj = (JSONObject) new JSONParser().parse(json);
             JSONArray candidates = (JSONArray) obj.get("candidates");
             if (candidates == null || candidates.isEmpty()) {
-                throw new IOException("Empty candidates in Gemini response: " + json);
+                throw new IOException("Gemini response contains no candidates");
             }
             JSONObject candidate = (JSONObject) candidates.get(0);
             JSONObject content = (JSONObject) candidate.get("content");
@@ -204,36 +233,40 @@ public class GeminiProvider implements AIProvider {
                 Object reason = candidate.get("finishReason");
                 throw new IOException("Gemini returned no content (finishReason=" + reason + ")");
             }
-            JSONArray parts = (JSONArray) content.get("parts");
+            if (!(content.get("parts") instanceof JSONArray parts)) throw new IOException("Gemini response contains no parts");
 
             StringBuilder sb = new StringBuilder();
             List<ToolCall> calls = new ArrayList<>();
             for (Object partObj : parts) {
                 JSONObject part = (JSONObject) partObj;
-                // Issue #2 fix: skip thought parts
-                Object thought = part.get("thought");
-                if (thought instanceof Boolean && (Boolean) thought) continue;
-
-                Object text = part.get("text");
-                if (text instanceof String) sb.append((String) text);
-
-                JSONObject fc = (JSONObject) part.get("functionCall");
-                if (fc != null) calls.add(toToolCall(fc));
+                if (part.get("functionCall") instanceof JSONObject fc) calls.add(toToolCall(fc));
+                if (part.get("text") instanceof String text)
+                    sb.append(ResponseSanitizer.visibleText(text, Boolean.TRUE.equals(part.get("thought"))));
             }
 
             return calls.isEmpty()
                     ? ProviderResponse.text(sb.toString().trim())
-                    : ProviderResponse.toolCalls(calls);
-        } catch (ParseException e) {
-            throw new IOException("Failed to parse Gemini response: " + e.getMessage(), e);
+                    : ProviderResponse.toolCalls(calls, Json.copy(content));
+        } catch (ParseException | ClassCastException | NullPointerException e) {
+            throw new IOException("Invalid Gemini response structure (" + e.getClass().getSimpleName() + ")");
         }
+    }
+
+    private static String safeApiStatus(String body) {
+        try {
+            JSONObject root = Json.parse(body);
+            if (root.get("error") instanceof JSONObject error && error.get("status") instanceof String status && status.matches("[A-Z_]{1,64}"))
+                return " (" + status + ")";
+        } catch (IOException ignored) {}
+        return "";
     }
 
     private ToolCall toToolCall(JSONObject fc) {
         String name = (String) fc.get("name");
         JSONObject args = (JSONObject) fc.get("args");
         String argsJson = args != null ? args.toJSONString() : "{}";
-        return new ToolCall(UUID.randomUUID().toString(), name, argsJson);
+        String id = fc.get("id") instanceof String nativeId ? nativeId : "gemini-local-" + UUID.randomUUID();
+        return new ToolCall(id, name, argsJson);
     }
 
 }

@@ -34,3 +34,11 @@ tasks.register('exportDevDependencies', Copy) {
     from configurations.testRuntimeClasspath
     into layout.buildDirectory.dir('dev-dependencies')
 }
+
+// Used by tests/run-sdk-interop.py against real Python SDK v1 and v2 servers.
+tasks.register('writeInteropClasspath') {
+    dependsOn testClasses
+    doLast {
+        layout.buildDirectory.file('interop-classpath.txt').get().asFile.text = sourceSets.test.runtimeClasspath.asPath
+    }
+}

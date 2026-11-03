@@ -5,6 +5,8 @@ provider: gemini          # gemini | ollama | nvidia
 bot-name: "Notch"
 private-questions: false
 max-history: 8            # rolling per-player message history; 0 = stateless
+max-concurrent-questions: 4
+show-tool-activity: true  # tool activity is sent only to the requesting player
 agent-max-steps: 8        # max tool-calling iterations before forcing a best-effort answer
 
 prompt-template: |
@@ -46,6 +48,7 @@ prompt-template: |
 
 providers:
   gemini:
+    schema-format: json-schema  # or openapi for older endpoints
     api-key: ""
     api-url: "https://generativelanguage.googleapis.com/v1beta/models/gemma-4-31b-it:generateContent"
     temperature: 0.5
@@ -62,6 +65,11 @@ providers:
     temperature: 0.5
 
 tools:
+  mcp:
+    enabled: false
+    refresh-seconds: 300  # 0 disables periodic refresh; /aichat mcp refresh still works
+    max-tools: 48
+    servers: {}          # See examples/bluemap-mcp.yml and docs/MCP.md
   web-search:
     enabled: true
     api-key: ""           # Brave Search API key; tool is hidden from the LLM if blank
